@@ -105,6 +105,7 @@ class WebCrawler:
 
         # Component instances (initialized on demand)
         self.rate_limiter = None
+        self.link_check_limiter = None  # spaces out HEAD checks (link_check_delay)
         self.link_manager = None
         self.js_renderer = None
         self.sitemap_parser = None
@@ -196,12 +197,21 @@ class WebCrawler:
         self.session.mount('http://', adapter)
         self.session.mount('https://', adapter)
 
+    def _make_link_check_limiter(self):
+        """Rate limiter for HEAD checks, or None when link_check_delay is 0."""
+        delay = float(self.config.get('link_check_delay', 0) or 0)
+        return RateLimiter(1.0 / delay) if delay > 0 else None
+
     def _get_default_config(self):
         """Get default configuration"""
         return {
             'max_depth': 3,
             'max_urls': 1000,
             'delay': 1.0,
+            # HEAD checks of image and external link targets: on/off, and the
+            # minimum gap between them (0 = no gap, the previous behaviour)
+            'check_links': True,
+            'link_check_delay': 0,
             'follow_redirects': True,
             'crawl_external': False,
             'user_agent': 'LibreCrawl/1.0 (Web Crawler)',
@@ -412,6 +422,7 @@ class WebCrawler:
             requests_per_second = 100.0
 
         self.rate_limiter = RateLimiter(requests_per_second)
+        self.link_check_limiter = self._make_link_check_limiter()
         self.link_manager = LinkManager(self.base_domain, event_log=self.event_log)
         self.sitemap_parser = SitemapParser(self.session, self.base_domain, self.config['timeout'])
         self.issue_detector = IssueDetector(self.config.get('issue_exclusion_patterns', []))
@@ -912,6 +923,8 @@ class WebCrawler:
                 self.rate_limiter.update_rate(1.0 / self.config['delay'])
             else:
                 self.rate_limiter.update_rate(100.0)
+        if self.link_manager is not None:
+            self.link_check_limiter = self._make_link_check_limiter()
 
     def _crawl_worker(self):
         """Main crawling worker with smooth rate limiting"""
@@ -1546,6 +1559,9 @@ class WebCrawler:
         are checked when crawl_external is off, so the External tab still
         lists them (with status) without crawling the other site.
         """
+        if not self.config.get('check_links', True):
+            return
+
         image_links = [l for l in new_links if l.get('placement') == 'image']
         if image_links:
             self._head_check_links(image_links, depth)
@@ -1608,11 +1624,15 @@ class WebCrawler:
             content_type = ''
             size = 0
             try:
+                if self.link_check_limiter:
+                    self.link_check_limiter.acquire()
                 resp = self.session.head(url, timeout=5, allow_redirects=True)
                 # Plenty of servers refuse HEAD but serve GET; confirm with a
                 # streamed GET whose body is never read
                 if resp.status_code in (403, 405, 501):
                     resp.close()
+                    if self.link_check_limiter:
+                        self.link_check_limiter.acquire()
                     resp = self.session.get(url, timeout=5, allow_redirects=True, stream=True)
                     resp.close()
                 link['target_status'] = resp.status_code
@@ -1634,7 +1654,10 @@ class WebCrawler:
                                          link_check_only)
 
         batch = to_check[:50]
-        with ThreadPoolExecutor(max_workers=min(HEAD_CHECK_WORKERS, len(batch))) as pool:
+        # Never run more checks at once than the crawl's own concurrency: with
+        # concurrency 1 a site should see one request at a time, not six
+        workers = max(1, min(HEAD_CHECK_WORKERS, int(self.config.get('concurrency', 5)), len(batch)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
             pool.map(_head_check, batch)
 
         mutated.extend(batch)

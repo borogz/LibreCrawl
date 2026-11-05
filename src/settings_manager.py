@@ -26,7 +26,8 @@ class SettingsManager:
         # user: Crawler, Export, Issue Exclusion tabs
         user_settings = [
             # Crawler tab
-            'maxDepth', 'maxUrls', 'crawlDelay', 'followRedirects', 'crawlExternalLinks',
+            'maxDepth', 'maxUrls', 'crawlDelay', 'checkLinks', 'linkCheckDelay', 'followRedirects',
+            'crawlExternalLinks',
             # Export tab
             'exportFormat', 'exportFields',
             # Issues tab
@@ -79,6 +80,8 @@ class SettingsManager:
             'maxDepth': 3,
             'maxUrls': 5000000,
             'crawlDelay': 1,
+            'checkLinks': True,
+            'linkCheckDelay': 0,
             'followRedirects': True,
             'crawlExternalLinks': False,
 
@@ -444,6 +447,7 @@ class SettingsManager:
                 'maxDepth': (1, 10),
                 'maxUrls': (1, 5000000),
                 'crawlDelay': (0, 60),
+                'linkCheckDelay': (0, 60),
                 'timeout': (1, 120),
                 'retries': (0, 10),
                 'maxFileSize': (1, 1000),
@@ -496,6 +500,8 @@ class SettingsManager:
             'max_depth': settings['maxDepth'],
             'max_urls': settings['maxUrls'],
             'delay': settings['crawlDelay'],
+            'check_links': settings.get('checkLinks', True),
+            'link_check_delay': settings.get('linkCheckDelay', 0),
             'follow_redirects': settings['followRedirects'],
             'crawl_external': settings['crawlExternalLinks'],
             'user_agent': settings['userAgent'],
