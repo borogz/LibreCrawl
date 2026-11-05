@@ -758,6 +758,59 @@ def _playwright_available():
         return False
 
 
+def test_link_checks_are_throttled():
+    """HEAD checks follow concurrency and link_check_delay, and can be switched off."""
+    site = BASE_PORT + 17
+    images = ''.join(f'<img src="/img{i}.png" alt="i{i}">' for i in range(12))
+    state = {'in_flight': 0, 'peak': 0, 'heads': []}
+    lock = threading.Lock()
+
+    class Counting(http.server.BaseHTTPRequestHandler):
+        protocol_version = 'HTTP/1.1'
+
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            is_check = self.path.startswith('/img')
+            if is_check:
+                with lock:
+                    state['in_flight'] += 1
+                    state['peak'] = max(state['peak'], state['in_flight'])
+                    state['heads'].append(time.time())
+                time.sleep(0.05)  # long enough for parallel checks to overlap
+            body = png() if is_check else html(images).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/png' if is_check else 'text/html')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            if self.command == 'GET':
+                self.wfile.write(body)
+            if is_check:
+                with lock:
+                    state['in_flight'] -= 1
+
+        do_HEAD = do_GET
+
+    srv = serve(Counting, site)
+    try:
+        crawl(f'http://127.0.0.1:{site}/', concurrency=1, link_check_delay=0.2)
+        gaps = [b - a for a, b in zip(state['heads'], state['heads'][1:])]
+        result('link checks: every image was checked', len(state['heads']) == 12,
+               f"{len(state['heads'])} checks")
+        result('link checks: never more at once than concurrency (1)', state['peak'] == 1,
+               f"peak {state['peak']} in flight")
+        result('link checks: spaced by link_check_delay (0.2s)', bool(gaps) and min(gaps) >= 0.18,
+               f"smallest gap {min(gaps):.3f}s" if gaps else 'no gaps')
+
+        state.update({'heads': [], 'peak': 0})
+        crawl(f'http://127.0.0.1:{site}/', check_links=False)
+        result('link checks: check_links off sends no checks', len(state['heads']) == 0,
+               f"{len(state['heads'])} checks")
+    finally:
+        srv.shutdown()
+
+
 TESTS = (
     test_cross_domain_redirect,
     test_external_images,
@@ -772,6 +825,7 @@ TESTS = (
     test_crawl_delay_is_honoured,
     test_list_mode_fetches_only_the_list,
     test_custom_extraction,
+    test_link_checks_are_throttled,
 )
 
 
