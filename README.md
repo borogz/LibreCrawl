@@ -143,7 +143,8 @@ python main.py -l
 
 5. Open your browser and navigate to:
    - Local: `http://localhost:5000`
-   - Network: `http://<your-ip>:5000`
+   - Network: the server listens on `127.0.0.1` only. To reach it from other machines, set
+     `BIND_HOST=0.0.0.0`, and run in standard mode: `--local` gives every visitor admin with no login
 
 
 ## LibreCrawl Plugins

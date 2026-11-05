@@ -2008,9 +2008,9 @@ def main():
     print("=" * 60)
     print("LibreCrawl - SEO Spider")
     print("=" * 60)
-    print(f"\n🚀 Server starting on http://0.0.0.0:5000")
+    print(f"\n🚀 Server starting on http://{os.getenv('BIND_HOST', '127.0.0.1')}:5000")
     print(f"🌐 Access from browser: http://localhost:5000")
-    print(f"📱 Access from network: http://<your-ip>:5000")
+    print(f"📱 Access from network: set BIND_HOST=0.0.0.0 (and don't use --local)")
     print(f"\n✨ Multi-tenancy enabled - each browser session is isolated")
     print(f"💾 Settings stored in browser localStorage")
     print(f"\nPress Ctrl+C to stop the server\n")
@@ -2028,7 +2028,11 @@ def main():
     from waitress import serve
     print("Starting LibreCrawl on http://localhost:5000")
     print("Using Waitress WSGI server with multi-threading support")
-    serve(app, host='0.0.0.0', port=5000, threads=8)
+    # Bind to localhost unless BIND_HOST says otherwise. Local mode logs every
+    # visitor in as admin with no password, so listening on all interfaces by
+    # default exposed an unauthenticated crawler to the whole network.
+    host = os.getenv('BIND_HOST', '127.0.0.1')
+    serve(app, host=host, port=5000, threads=8)
 
 if __name__ == '__main__':
     main()
