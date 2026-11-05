@@ -758,6 +758,38 @@ def _playwright_available():
         return False
 
 
+def test_relative_sitemap_urls_are_resolved():
+    """Relative Sitemap: lines in robots.txt and relative <loc> values are resolved."""
+    site = BASE_PORT + 16
+    index = ('<?xml version="1.0" encoding="UTF-8"?><sitemapindex>'
+             '<sitemap><loc>/nested-sitemap.xml</loc></sitemap></sitemapindex>')
+    nested = ('<?xml version="1.0" encoding="UTF-8"?><urlset>'
+              '<url><loc>/from-nested.html</loc></url></urlset>')
+    news = ('<?xml version="1.0" encoding="UTF-8"?><urlset>'
+            f'<url><loc>http://127.0.0.1:{site}/from-news.html</loc></url></urlset>')
+    hits = []
+    a = serve(make_handler({
+        '/': html('<p>root</p>'),
+        '/robots.txt': ('User-agent: *\nAllow: /\n'
+                        'Sitemap: /sitemap-news.xml\nSitemap: sitemap-index.xml\n'),
+        '/sitemap-news.xml': news,
+        '/sitemap-index.xml': index,
+        '/nested-sitemap.xml': nested,
+        '/from-news.html': html('<p>news</p>'),
+        '/from-nested.html': html('<p>nested</p>'),
+    }, hits=hits), site)
+    try:
+        crawler = crawl(f'http://127.0.0.1:{site}/', discover_sitemaps=True)
+        urls = {r['url'] for r in crawler.crawl_results}
+        result('sitemap: relative robots.txt Sitemap: line is fetched',
+               'GET /sitemap-news.xml' in hits and f'http://127.0.0.1:{site}/from-news.html' in urls,
+               ', '.join(h for h in hits if 'sitemap' in h))
+        result('sitemap: relative <loc> in an index and a urlset are resolved',
+               f'http://127.0.0.1:{site}/from-nested.html' in urls)
+    finally:
+        a.shutdown()
+
+
 TESTS = (
     test_cross_domain_redirect,
     test_external_images,
@@ -772,6 +804,7 @@ TESTS = (
     test_crawl_delay_is_honoured,
     test_list_mode_fetches_only_the_list,
     test_custom_extraction,
+    test_relative_sitemap_urls_are_resolved,
 )
 
 
