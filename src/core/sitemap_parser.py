@@ -1,7 +1,7 @@
 """Sitemap discovery and parsing"""
 import gzip
 import xml.etree.ElementTree as ET
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 
 class SitemapParser:
@@ -58,7 +58,10 @@ class SitemapParser:
                     line = line.strip()
                     if line.lower().startswith('sitemap:'):
                         sitemap_url = line.split(':', 1)[1].strip()
-                        sitemaps.append(sitemap_url)
+                        # Full URLs are what the format expects, but relative values
+                        # ("Sitemap: /sitemap-news.xml") occur and used to fail silently
+                        if sitemap_url:
+                            sitemaps.append(urljoin(robots_url, sitemap_url))
 
         except Exception as e:
             print(f"Could not fetch robots.txt: {e}")
@@ -111,7 +114,7 @@ class SitemapParser:
                 for sitemap in sitemaps:
                     loc_elem = sitemap.find('loc')
                     if loc_elem is not None and loc_elem.text:
-                        nested_url = loc_elem.text.strip()
+                        nested_url = urljoin(sitemap_url, loc_elem.text.strip())
                         nested_urls = self._parse_sitemap(nested_url, depth + 1, max_depth)
                         all_urls.extend(nested_urls)
 
@@ -122,7 +125,7 @@ class SitemapParser:
                 for url_elem in urls:
                     loc_elem = url_elem.find('loc')
                     if loc_elem is not None and loc_elem.text:
-                        url = loc_elem.text.strip()
+                        url = urljoin(sitemap_url, loc_elem.text.strip())
                         all_urls.append(url)
 
             return all_urls
