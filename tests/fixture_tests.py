@@ -841,6 +841,39 @@ def test_link_checks_are_throttled():
         srv.shutdown()
 
 
+def test_duplicate_head_tags():
+    """Two SEO plugins writing the same head tags: every instance is kept and flagged, and a
+    noindex in an earlier robots tag is never hidden by a later index tag."""
+    from bs4 import BeautifulSoup
+    from src.core.seo_extractor import SEOExtractor
+    from src.core.issue_detector import IssueDetector
+    soup = BeautifulSoup(
+        '<html><head><title>A</title><title>B</title>'
+        '<meta name="robots" content="noindex,follow"><meta name="robots" content="index,follow">'
+        '<link rel="canonical" href="https://a.test/p"><link rel="canonical" href="https://a.test/q">'
+        '</head><body></body></html>', 'html.parser')
+    r = {'url': 'https://a.test/p', 'meta_tags': {}}
+    SEOExtractor.extract_basic_seo_data(soup, r)
+    SEOExtractor.extract_meta_tags(soup, r)
+    issues = []
+    det = IssueDetector()
+    det._check_duplicate_head_tags(r, issues)
+    det._check_indexability_issues(r, issues)
+    names = {i['issue'] for i in issues}
+    result('duplicate head tags: noindex in the first robots tag survives',
+           'noindex' in r['robots'] and 'Noindex Tag Present' in names, r['robots'])
+    result('duplicate head tags: each duplicate is flagged',
+           {'Multiple Title Tags', 'Multiple Meta Robots Tags', 'Multiple Canonical Tags'} <= names,
+           ', '.join(sorted(names)))
+    single = BeautifulSoup('<html><head><title>A</title><meta name="robots" content="index">'
+                           '<link rel="canonical" href="/x"></head></html>', 'html.parser')
+    r2 = {'url': 'u', 'meta_tags': {}}
+    SEOExtractor.extract_basic_seo_data(single, r2)
+    SEOExtractor.extract_meta_tags(single, r2)
+    result('duplicate head tags: single tags raise nothing', not r2.get('head_duplicates'),
+           str(r2.get('head_duplicates')))
+
+
 TESTS = (
     test_cross_domain_redirect,
     test_external_images,
@@ -857,6 +890,7 @@ TESTS = (
     test_custom_extraction,
     test_relative_sitemap_urls_are_resolved,
     test_link_checks_are_throttled,
+    test_duplicate_head_tags,
 )
 
 
