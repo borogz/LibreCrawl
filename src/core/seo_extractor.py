@@ -13,10 +13,15 @@ class SEOExtractor:
         # Extract title
         title_tag = soup.find('title')
         result['title'] = title_tag.get_text().strip() if title_tag else ''
+        SEOExtractor._note_duplicates(result, 'title',
+                                      [t.get_text().strip() for t in soup.find_all('title')])
 
         # Extract meta description
         meta_desc = soup.find('meta', attrs={'name': 'description'})
         result['meta_description'] = meta_desc.get('content', '').strip() if meta_desc else ''
+        SEOExtractor._note_duplicates(result, 'meta_description',
+                                      [m.get('content', '').strip() for m in
+                                       soup.find_all('meta', attrs={'name': re.compile(r'^description$', re.I)})])
 
         # Extract headings
         h1_tag = soup.find('h1')
@@ -74,9 +79,30 @@ class SEOExtractor:
                 elif name == 'theme-color':
                     result['theme_color'] = content
 
-        # Extract canonical URL
-        canonical = soup.find('link', attrs={'rel': 'canonical'})
-        result['canonical_url'] = canonical.get('href', '') if canonical else ''
+        # Robots: a page can carry more than one robots meta tag (two SEO plugins, a theme plus
+        # a plugin). Search engines apply the most restrictive directive across all of them, so
+        # combine every value rather than keeping whichever tag happened to come last, which
+        # silently hid a noindex in an earlier tag.
+        robots_values = [m.get('content', '') for m in soup.find_all('meta')
+                         if m.get('name', '').lower() == 'robots']
+        if len(robots_values) > 1:
+            result['robots'] = ', '.join(v for v in robots_values if v)
+        SEOExtractor._note_duplicates(result, 'robots', robots_values)
+
+        # Extract canonical URL (first one, as before) and record any extras
+        canonicals = soup.find_all('link', attrs={'rel': 'canonical'})
+        result['canonical_url'] = canonicals[0].get('href', '') if canonicals else ''
+        SEOExtractor._note_duplicates(result, 'canonical', [c.get('href', '') for c in canonicals])
+
+    @staticmethod
+    def _note_duplicates(result, tag, values):
+        """Record a head tag that appears more than once on the page, with every value found.
+
+        Stored in result['head_duplicates'] = {tag: [values...]}. Duplicates usually mean two
+        plugins writing the same tag; when the values differ, search engines may pick either.
+        """
+        if len(values) > 1:
+            result.setdefault('head_duplicates', {})[tag] = values
 
     @staticmethod
     def extract_opengraph_tags(soup, result):

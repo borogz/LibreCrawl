@@ -66,6 +66,7 @@ class IssueDetector:
         self._check_structured_data_issues(result, issues)
         self._check_performance_issues(result, issues)
         self._check_indexability_issues(result, issues)
+        self._check_duplicate_head_tags(result, issues)
         self._check_broken_image_issues(result, issues)
 
         # Add all detected issues
@@ -356,6 +357,24 @@ class IssueDetector:
                 'category': 'Performance',
                 'issue': 'Moderate Page Size',
                 'details': f'Page size is {page_size / 1024 / 1024:.1f}MB (recommended: <1MB)'
+            })
+
+    def _check_duplicate_head_tags(self, result, issues):
+        """Flag title, meta description, robots or canonical tags that appear more than once."""
+        url = result.get('url', '')
+        labels = {'title': 'Title', 'meta_description': 'Meta Description',
+                  'robots': 'Meta Robots', 'canonical': 'Canonical'}
+        for tag, values in (result.get('head_duplicates') or {}).items():
+            distinct = list(dict.fromkeys(v for v in values))
+            conflicting = len(distinct) > 1
+            issues.append({
+                'url': url,
+                'type': 'error' if conflicting and tag in ('robots', 'canonical') else 'warning',
+                'category': 'Indexability' if tag in ('robots', 'canonical') else 'SEO',
+                'issue': f"Multiple {labels.get(tag, tag)} Tags",
+                'details': (f"{len(values)} {labels.get(tag, tag).lower()} tags"
+                            + (f" with different values: {' | '.join(distinct)[:300]}" if conflicting
+                               else " with the same value"))
             })
 
     def _check_indexability_issues(self, result, issues):
